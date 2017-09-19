@@ -1,4 +1,14 @@
 
+
+watch:
+	stack build --file-watch
+
+
+
+
+
+## ---------------
+
 NETWORK=easy-deploy
 NAME1=server-BLUE
 NAME2=server-GREEN
