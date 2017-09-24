@@ -9,7 +9,7 @@ import System.Directory (copyFile, createDirectoryIfMissing)
 
 tempFolder :: String
 tempFolder =
-    "/home/marcelo/Programs/Projects/easy-deploy/nginx"
+    "/home/marcelo/Programs/Projects/easy-deploy/nginx/proxies"
 
 nginxConfigFolder :: String
 nginxConfigFolder =
@@ -17,7 +17,7 @@ nginxConfigFolder =
 
 nginxImage :: Docker.Image
 nginxImage =
-    Docker.image "nginx"
+    Docker.officialImage "nginx"
 
 nginxTarget :: Docker.Target
 nginxTarget =
@@ -33,14 +33,15 @@ main :: IO ()
 main =
     do
         v <- run $ deploy
-            (Docker.image "lazamar/lazamar.co.uk")
+            (Docker.userImage "lazamar" "lazamar.co.uk")
             (Docker.tag "latest")
+        putStrLn "-------------------"
         case v of
             Right v ->
-                putStrLn "Failure" >>
+                putStrLn "Success" >>
                 putStrLn v
             Left v ->
-                putStrLn "Success" >>
+                putStrLn "Failure" >>
                 putStrLn v
 
 {-
@@ -114,9 +115,9 @@ runProxy targetImage (Port targetPort) =
         safeIO $ print isContainerRunning
         unless isContainerRunning $
             do
+                setActiveColor targetImage Blue
                 net <- network targetImage
                 Docker.run  (Just net) volumes ports nginxTarget container
-                setActiveColor targetImage Blue
         where
             container =
                 Docker.container targetImage "PROXY"
@@ -152,4 +153,4 @@ colorSourceFile color =
 
 proxyDir :: Docker.Image -> String
 proxyDir image =
-    tempFolder ++ "/" ++ "proxy-" ++ show image
+    tempFolder ++ "/" ++ "proxy-" ++ fmap (\c -> if c == '/' then '-' else c) (show image)

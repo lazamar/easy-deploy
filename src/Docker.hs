@@ -1,6 +1,7 @@
 module Docker
     ( tag
-    , image
+    , userImage
+    , officialImage
     , container
     , target
     , network
@@ -22,12 +23,15 @@ module Docker
 
 import Command (Command, cmd, ignoreResult, safeIO)
 import Data.Functor (void)
+import Data.List (intersperse)
 import Data.Maybe (maybe)
 import System.Directory (getCurrentDirectory)
 
 newtype Tag = Tag String
 
-newtype Image = Image String
+data Image
+    = OfficialImage String
+    | UserImage String String
 
 data Target = Target Image Tag
 
@@ -50,12 +54,19 @@ instance Show Tag where
         name
 
 instance Show Image where
-    show (Image name) =
-        name
+    show (OfficialImage name)    = name
+    show (UserImage origin name) = origin ++ "/" ++ name
 
 instance Show Container where
-    show (Container (Image name) qualifier) =
-        "container-" ++ qualifier ++ "-" ++ name
+    show (Container image qualifier) =
+        "container-" ++ qualifier ++ "-" ++ imgName
+        where
+            imgName =
+                case image of
+                    OfficialImage name ->
+                        name
+                    UserImage _ name ->
+                        name
 
 instance Show PortBinding where
     show (PortBinding local container) =
@@ -66,15 +77,18 @@ instance Show VolumeBinding where
         local ++ ":" ++ container
 
 instance Show Network where
-    show (Network (Image name)) =
-        name
+    show (Network image) =
+        show image
 
 
 tag :: String -> Tag
 tag = Tag
 
-image :: String -> Image
-image = Image
+userImage :: String -> String -> Image
+userImage = UserImage
+
+officialImage :: String -> Image
+officialImage = OfficialImage
 
 target :: Image -> Tag -> Target
 target = Target
@@ -130,8 +144,8 @@ run mNetwork volumes ports (Target image tag) container =
                     [ [ "run" , "-d" ]
                     , return $ "--name=" ++ show container
                     , (++) "--net=" <$>  maybe [] (return . show) mNetwork
-                    , (++) "-v " . toVolume <$> volumes
-                    , (++) "-p " . toPort <$> ports
+                    , (:) "-v" $ intersperse "-v" $ toVolume <$> volumes
+                    , (:) "-p" $ intersperse "-p" $ toPort <$> ports
                     , [ show $ Target image tag ]
                     ]
 

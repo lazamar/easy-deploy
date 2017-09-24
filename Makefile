@@ -3,6 +3,8 @@
 watch:
 	stack build --file-watch
 
+run:
+	stack exec easy-deploy-exe
 
 
 
