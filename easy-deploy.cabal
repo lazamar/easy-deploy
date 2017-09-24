@@ -19,11 +19,15 @@ source-repository head
 library
     exposed-modules:
         Lib
+        Command
+        Docker
     build-depends:
         base >=4.7 && <5,
         process -any,
         split -any,
-        either -any
+        either -any,
+        directory -any,
+        mtl -any
     default-language: Haskell2010
     hs-source-dirs: src
 

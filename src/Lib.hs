@@ -1,62 +1,51 @@
 module Lib (main) where
-import Control.Monad.IO.Class (liftIO)
-import qualified Control.Monad.Trans.Either as EitherT
-import Data.List.Split (splitOn)
-import System.Exit (ExitCode (ExitFailure, ExitSuccess))
-import System.Process (readProcessWithExitCode)
+import Command (Command, run, safeIO)
+import Control.Monad (unless)
+import Docker (isRunning, network, portBinding, volumeBinding)
+import qualified Docker
+import System.Directory (copyFile, createDirectoryIfMissing)
 
 -- Constants
 
-tempFolder = "/home/marcelo/Programs/Projects/easy-deploy/nginx"
+tempFolder :: String
+tempFolder =
+    "/home/marcelo/Programs/Projects/easy-deploy/nginx"
 
--- Types
+nginxConfigFolder :: String
+nginxConfigFolder =
+    "/etc/nginx/conf.d/"
 
-newtype DockerTag = DockerTag String
+nginxImage :: Docker.Image
+nginxImage =
+    Docker.image "nginx"
 
-newtype DockerImage = DockerImage String
+nginxTarget :: Docker.Target
+nginxTarget =
+    Docker.target nginxImage $ Docker.tag "latest"
 
-type Command a = EitherT.EitherT String IO a
+data Color
+    = Green
+    | Blue
 
--- ================================================
-
-command :: String -> [String] -> String -> Command String
-command cmd args stdin =
-    do
-        (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode cmd args stdin
-        case exitCode of
-            ExitSuccess ->
-                EitherT.right stdout
-
-            ExitFailure code ->
-                EitherT.left errorMsg
-                where
-                    errorMsg =
-                        stdout
-                        ++ "\n"
-                        ++ "exit status: "
-                        ++ show code
-                        ++ "\n"
-                        ++ stderr
-
-run :: Command a -> IO (Either String a)
-run =
-    EitherT.runEitherT
-
--- ===================================================
+newtype Port = Port Int
 
 main :: IO ()
 main =
     do
-        deploy
-            (DockerImage "lazamar/lazamar.co.uk")
-            (DockerTag "latest")
-        v <- run activeNetworks
-        print v
+        v <- run $ deploy
+            (Docker.image "lazamar/lazamar.co.uk")
+            (Docker.tag "latest")
+        case v of
+            Right v ->
+                putStrLn "Failure" >>
+                putStrLn v
+            Left v ->
+                putStrLn "Success" >>
+                putStrLn v
 
+{-
+    Deployment pseudocode
 
-deploy :: DockerImage -> DockerTag -> IO ()
-deploy (DockerImage _) (DockerTag _) =
-    return ()
     -- pull latest version from docker
     -- make sure network is created
     -- if not isRunning nginx then
@@ -74,19 +63,93 @@ deploy (DockerImage _) (DockerTag _) =
         -- set nginx to NEXT_NAME port
         -- stop ACTIVE_NAME process
     -- Erase images older than MAX_IMAGES
+-}
+deploy :: Docker.Image -> Docker.Tag -> Command String
+deploy image tag =
+    do
+        let
+            target = Docker.target image tag
 
-activeNetworks :: Command [String]
-activeNetworks =
-    fmap toList $
-    command "awk" ["{ print $2 }"] =<<
-    command "docker" ["network", "ls"] ""
-     where
-            toList =
-                filter (not . null) .
-                tail .
-                splitOn "\n"
+        -- pull latest version from docker
+        Docker.pull target
+        runProxy image $ Port 8080
+        return "Try me"
+        -- make sure network is created
+        -- net <- Docker.network image
 
 
-createNetwork :: String -> IO ()
-createNetwork name =
-    return ()
+
+    -- if not isRunning nginx then
+        -- start nginx service
+        -- erase any container with GREEN name
+        -- start process on GREEN port
+        -- set nginx to GREEN port
+    -- else
+        -- ACTIVE_NAME = get running process name
+        -- NEXT_NAME = calculate next name from process
+        -- make sure there are no containers with NEXT_NAME name
+        -- erase any container with NEXT_NAME name
+        -- start process on NEXT_NAME port
+        -- run smoke tests on NEXT_NAME port
+        -- set nginx to NEXT_NAME port
+        -- stop ACTIVE_NAME process
+    -- Erase images older than MAX_IMAGES
+
+
+{- A result of Nothing, means the proxy is not running -}
+-- proxyRunningColor :: Docker.Container -> Command (Maybe String)
+-- proxyRunningColor
+
+{-
+    This will force-run the proxy. Create all folders and files.
+    Will override files if they already exist.
+
+    The proxy will run an nginx image. The image parameter is used
+    to determine the proxy name and the network it will run in
+-}
+runProxy :: Docker.Image -> Port -> Command ()
+runProxy targetImage (Port targetPort) =
+    do
+        isContainerRunning <- isRunning container
+        safeIO $ print isContainerRunning
+        unless isContainerRunning $
+            do
+                net <- network targetImage
+                Docker.run  (Just net) volumes ports nginxTarget container
+                setActiveColor targetImage Blue
+        where
+            container =
+                Docker.container targetImage "PROXY"
+
+            volumes =
+                [ volumeBinding (proxyDir targetImage) nginxConfigFolder ]
+
+            ports =
+                [ portBinding targetPort 8080 ]
+
+
+{- Will take care of the directory and file -}
+setActiveColor :: Docker.Image -> Color -> Command ()
+setActiveColor image color =
+    safeIO $
+        do
+            createDirectoryIfMissing True proxyFolder
+            copyFile colorFile destinationPath
+        where
+            colorFile = colorSourceFile color
+            proxyFolder = proxyDir image
+            destinationFileName = "default.conf"
+            destinationPath = proxyFolder ++ "/" ++ destinationFileName
+
+colorSourceFile :: Color -> String
+colorSourceFile color =
+    case color of
+        Green ->
+            "/home/marcelo/Programs/Projects/easy-deploy/nginx/conf.d/green-default.conf"
+
+        Blue ->
+            "/home/marcelo/Programs/Projects/easy-deploy/nginx/conf.d/blue-default.conf"
+
+proxyDir :: Docker.Image -> String
+proxyDir image =
+    tempFolder ++ "/" ++ "proxy-" ++ show image
