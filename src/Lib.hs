@@ -1,5 +1,6 @@
 module Lib (main) where
 import Command (Command, run, safeIO)
+import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
 import Docker (isRunning, network, portBinding, volumeBinding)
 import qualified Docker
@@ -74,6 +75,7 @@ deploy image tag =
             target = Docker.target image tag
 
         -- pull latest version from docker
+        safeIO $ putStrLn $ "Pulling image for " ++ show image ++ " from server"
         Docker.pull target
         mRunningColor <- runningColor image
         let
@@ -83,19 +85,24 @@ deploy image tag =
                     _         -> Blue
 
         net <- network image
+        safeIO $ putStrLn $ "Starting " ++ show newColor ++ " image."
         Docker.run (Just net) volumes ports target (toContainer image newColor)
-        safeIO $ putStrLn $ "Image " ++ show newColor ++ " running."
 
+        -- This wait allows some time for the server running in the
+        -- new image to kick up and be ready to answer to requests
+        safeIO $ putStrLn "Waiting for 5 seconds before switching"
+        safeIO $ threadDelay $ 5 * 1000 * 1000
+
+        safeIO $ putStrLn $ "Switching proxy to " ++ show newColor
         setActiveColor image newColor
-        safeIO $ putStrLn $ "Switched proxy to " ++ show newColor
 
+        safeIO $ putStrLn "Reloading proxy"
         runProxy image (Port 8080) newColor
-        safeIO $ putStrLn "Proxy reloaded"
 
         case mRunningColor of
             Just color -> do
                 Docker.kill $ toContainer image color
-                safeIO $ putStrLn $ "Switched proxy to " ++ show newColor
+                safeIO $ putStrLn $ show color ++ " container killed"
                 return ""
 
             Nothing -> return ""
