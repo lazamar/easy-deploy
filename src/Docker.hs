@@ -9,6 +9,7 @@ module Docker
     , volumeBinding
     , pull
     , run
+    , exec
     , isRunning
     , kill
     , killAndRemove
@@ -35,6 +36,11 @@ data Image
 
 data Target = Target Image Tag
 
+{- Containers have a qualifier, which is just a string that gets
+    added to the container name and allows us to spin up multiple
+    containers with the same image, but still being able to
+    identify them by name.
+-}
 data Container = Container Image String
 
 data PortBinding = PortBinding Int Int
@@ -144,8 +150,8 @@ run mNetwork volumes ports (Target image tag) container =
                     [ [ "run" , "-d" ]
                     , return $ "--name=" ++ show container
                     , (++) "--net=" <$>  maybe [] (return . show) mNetwork
-                    , (:) "-v" $ intersperse "-v" $ toVolume <$> volumes
-                    , (:) "-p" $ intersperse "-p" $ toPort <$> ports
+                    , mconcat $ (:) "-v" . return . toVolume <$> volumes
+                    , mconcat $ (:) "-p" . return . toPort <$> ports
                     , [ show $ Target image tag ]
                     ]
 
@@ -155,6 +161,10 @@ isRunning container =
         allRunning <- docker ["ps", "--filter", "name=" ++ show container ]
         return . (<) 1 . length $ filter (== '\n') allRunning
 
+{- Runs instructions in a container that is already running -}
+exec :: Container -> [String] -> Command ()
+exec container commandList =
+    void $ docker $ ["exec", show container ] ++ commandList
 
 {-
     It creates a new network if it doesn't exist and

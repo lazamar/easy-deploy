@@ -23,9 +23,12 @@ nginxTarget :: Docker.Target
 nginxTarget =
     Docker.target nginxImage $ Docker.tag "latest"
 
+
+
 data Color
     = Green
     | Blue
+    deriving (Show)
 
 newtype Port = Port Int
 
@@ -46,7 +49,6 @@ main =
 
 {-
     Deployment pseudocode
-
     -- pull latest version from docker
     -- make sure network is created
     -- if not isRunning nginx then
@@ -73,53 +75,84 @@ deploy image tag =
 
         -- pull latest version from docker
         Docker.pull target
-        runProxy image $ Port 8080
-        return "Try me"
-        -- make sure network is created
-        -- net <- Docker.network image
+        mRunningColor <- runningColor image
+        let
+            newColor =
+                case mRunningColor of
+                    Just Blue -> Green
+                    _         -> Blue
+
+        net <- network image
+        Docker.run (Just net) volumes ports target (toContainer image newColor)
+        safeIO $ putStrLn $ "Image " ++ show newColor ++ " running."
+
+        setActiveColor image newColor
+        safeIO $ putStrLn $ "Switched proxy to " ++ show newColor
+
+        runProxy image (Port 8080) newColor
+        safeIO $ putStrLn "Proxy reloaded"
+
+        case mRunningColor of
+            Just color -> do
+                Docker.kill $ toContainer image color
+                safeIO $ putStrLn $ "Switched proxy to " ++ show newColor
+                return ""
+
+            Nothing -> return ""
+
+        return ""
+
+        where
+            volumes = [volumeBinding "/home/marcelo/Programs/Projects/lazamar.co.uk" "/home/app"]
+            ports = []
 
 
 
-    -- if not isRunning nginx then
-        -- start nginx service
-        -- erase any container with GREEN name
-        -- start process on GREEN port
-        -- set nginx to GREEN port
-    -- else
-        -- ACTIVE_NAME = get running process name
-        -- NEXT_NAME = calculate next name from process
-        -- make sure there are no containers with NEXT_NAME name
-        -- erase any container with NEXT_NAME name
-        -- start process on NEXT_NAME port
-        -- run smoke tests on NEXT_NAME port
-        -- set nginx to NEXT_NAME port
-        -- stop ACTIVE_NAME process
-    -- Erase images older than MAX_IMAGES
+
+runningColor :: Docker.Image -> Command (Maybe Color)
+runningColor img =
+    do
+        blueRunning <- isRunning $ toContainer img Blue
+        greenRunning <- isRunning $ toContainer img Green
+        return $
+            if blueRunning then
+                Just Blue
+            else if greenRunning then
+                Just Green
+            else
+                Nothing
 
 
-{- A result of Nothing, means the proxy is not running -}
--- proxyRunningColor :: Docker.Container -> Command (Maybe String)
--- proxyRunningColor
 
+toContainer :: Docker.Image -> Color -> Docker.Container
+toContainer img color =
+    Docker.container img $ show color
+
+-- ==========================
+--      PROXY
+-- ==========================
 {-
-    This will force-run the proxy. Create all folders and files.
+    This will run the proxy if it isn't running and do nothing if it already is.
+    Creates all folders and files.
     Will override files if they already exist.
 
     The proxy will run an nginx image. The image parameter is used
     to determine the proxy name and the network it will run in
 -}
-runProxy :: Docker.Image -> Port -> Command ()
-runProxy targetImage (Port targetPort) =
+runProxy :: Docker.Image -> Port -> Color -> Command ()
+runProxy targetImage (Port targetPort) color =
     do
-        isContainerRunning <- isRunning container
-        safeIO $ print isContainerRunning
-        unless isContainerRunning $
+        setActiveColor targetImage color
+        isContainerRunning <- isRunning proxyContainer
+        if isContainerRunning then
+            Docker.exec proxyContainer ["service", "nginx", "reload"]
+        else
             do
-                setActiveColor targetImage Blue
                 net <- network targetImage
-                Docker.run  (Just net) volumes ports nginxTarget container
+                Docker.run  (Just net) volumes ports nginxTarget proxyContainer
+
         where
-            container =
+            proxyContainer =
                 Docker.container targetImage "PROXY"
 
             volumes =
@@ -153,4 +186,4 @@ colorSourceFile color =
 
 proxyDir :: Docker.Image -> String
 proxyDir image =
-    tempFolder ++ "/" ++ "proxy-" ++ fmap (\c -> if c == '/' then '-' else c) (show image)
+    tempFolder ++ "/" ++ fmap (\c -> if c == '/' then '-' else c) (show image)

@@ -22,6 +22,7 @@ cmd program args stdin =
     do
         safeIO $ putStrLn $ "Command       : " ++ program ++ mconcat  (fmap (" " ++) args) ++ stdin
         (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode program args stdin
+        safeIO $ putStrLn $ "Outcome       : " ++ show exitCode ++ stdout ++ stderr
         -- safeIO $ putStrLn $ "Command STDERR: " ++ stderr
         -- safeIO $ putStrLn $ "Command STDOUT: " ++ stdout
         -- safeIO $ putStrLn $ "Command EXITCODE:" ++ show exitCode

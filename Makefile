@@ -12,8 +12,8 @@ run:
 ## ---------------
 
 NETWORK=easy-deploy
-NAME1=server-BLUE
-NAME2=server-GREEN
+NAME1=container-Blue-lazamar.co.uk
+NAME2=container-Green-lazamar.co.uk
 NGINX=server-nginx
 
 start-handler:
