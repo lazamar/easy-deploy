@@ -7,7 +7,7 @@ import Network.HTTP
 millisecond = 1000
 
 main =
-    loop (100 * millisecond) $
+    loop (50 * millisecond) $
         do
             result <- fetch "http://127.0.0.1:8080"
             print $ take 45 $ drop 116 result

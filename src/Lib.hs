@@ -2,9 +2,16 @@ module Lib (main) where
 import Command (Command, run, safeIO)
 import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
-import Docker (isRunning, network, portBinding, volumeBinding)
+import Data.List (intersperse)
+import Data.List.Split (splitOn)
+import Docker
+    (Container, Image, Tag, isRunning, network, portBinding, volumeBinding)
 import qualified Docker
+import System.Console.GetFlag
+    (ArgDescr (ReqArg), ArgOrder (RequireOrder), OptDescr (Option), getOpt)
 import System.Directory (copyFile, createDirectoryIfMissing)
+import System.Environment (getArgs)
+import Text.Read (readEither)
 
 -- Constants
 
@@ -16,7 +23,7 @@ nginxConfigFolder :: String
 nginxConfigFolder =
     "/etc/nginx/conf.d/"
 
-nginxImage :: Docker.Image
+nginxImage :: Image
 nginxImage =
     Docker.officialImage "nginx"
 
@@ -32,57 +39,79 @@ data Color
     deriving (Show)
 
 newtype Port = Port Int
+    deriving (Show, Read)
+
+
+data Flag
+    = FPort Port Port
+    | FVolume String String
+        deriving (Show, Read)
+
+
+cliOptions =
+    [ Option "p" (ReqArg (parseFlag readPort FPort) "PORT") "port bindings. Just like in Docker"
+    , Option "v" (ReqArg (parseFlag return FVolume) "VOLUME") "volume bindings. Just like in Docker"
+    ]
+
+
+readPort v =
+    case readEither v of
+        Right int ->
+            return $ Port int
+        Left _ ->
+            Left $ "Unable to parse port " ++ v
+
+
+parseFlag :: Read a => (String -> Either String a) -> (a -> a -> Flag) -> String -> Either String Flag
+parseFlag readRaw toFlag v =
+    case splitOn ":" v of
+        [raw1, raw2] ->
+            do
+                p1 <- readRaw raw1
+                p2 <- readRaw raw2
+                return $ toFlag p1 p2
+        _ ->
+            Left $ "Unable to parse flag: " ++ v
+
+readArguments :: IO (Either String ([Flag], [String]))
+readArguments =
+    toEitherArgs <$> getArgs
+    where
+        toEitherArgs args =
+            case getOpt RequireOrder cliOptions args of
+                (flags, args, []) ->
+                    flip (,) args <$> sequence flags
+
+                (_,_, errs) ->
+                    Left $ mconcat errs
 
 main :: IO ()
 main =
     do
-        v <- run $ deploy
-            (Docker.userImage "lazamar" "lazamar.co.uk")
-            (Docker.tag "latest")
-        putStrLn "-------------------"
-        case v of
-            Right v ->
-                putStrLn "Success" >>
-                putStrLn v
-            Left v ->
-                putStrLn "Failure" >>
-                putStrLn v
+        args <- readArguments
+        print args
+        -- v <- run $ deploy
+        --     [Port 8080]
+        --     (Docker.userImage "lazamar" "lazamar.co.uk")
+        --     (Docker.tag "latest")
+        -- putStrLn "-------------------"
+        -- case v of
+        --     Right _ ->
+        --         putStrLn "Success"
+        --
+        --     Left v ->
+        --         putStrLn "Failure" >>
+        --         putStrLn v
 
-{-
-    Deployment pseudocode
-    -- pull latest version from docker
-    -- make sure network is created
-    -- if not isRunning nginx then
-        -- start nginx service
-        -- erase any container with GREEN name
-        -- start process on GREEN port
-        -- set nginx to GREEN port
-    -- else
-        -- ACTIVE_NAME = get running process name
-        -- NEXT_NAME = calculate next name from process
-        -- make sure there are no containers with NEXT_NAME name
-        -- erase any container with NEXT_NAME name
-        -- start process on NEXT_NAME port
-        -- run smoke tests on NEXT_NAME port
-        -- set nginx to NEXT_NAME port
-        -- stop ACTIVE_NAME process
-    -- Erase images older than MAX_IMAGES
--}
-deploy :: Docker.Image -> Docker.Tag -> Command String
-deploy image tag =
+
+deploy :: [Port] -> Image -> Tag -> Command ()
+deploy ports image tag =
     do
-        let
-            target = Docker.target image tag
-
-        -- pull latest version from docker
-        safeIO $ putStrLn $ "Pulling image for " ++ show image ++ " from server"
-        Docker.pull target
         mRunningColor <- runningColor image
+
         let
-            newColor =
-                case mRunningColor of
-                    Just Blue -> Green
-                    _         -> Blue
+            newColor = maybe Blue alternate mRunningColor
+            target = Docker.target image tag
 
         net <- network image
         safeIO $ putStrLn $ "Starting " ++ show newColor ++ " image."
@@ -90,24 +119,23 @@ deploy image tag =
 
         -- This wait allows some time for the server running in the
         -- new image to kick up and be ready to answer to requests
-        safeIO $ putStrLn "Waiting for 5 seconds before switching"
+        safeIO $ putStrLn "Waiting for 5 seconds for server to start"
         safeIO $ threadDelay $ 5 * 1000 * 1000
 
-        safeIO $ putStrLn $ "Switching proxy to " ++ show newColor
-        setActiveColor image newColor
+        {-
+            SMOKE TESTS GO HERE
+        -}
 
-        safeIO $ putStrLn "Reloading proxy"
-        runProxy image (Port 8080) newColor
+        safeIO $ putStrLn $ "Switching proxy to " ++ show newColor
+        runProxy image ports newColor
 
         case mRunningColor of
             Just color -> do
                 Docker.kill $ toContainer image color
                 safeIO $ putStrLn $ show color ++ " container killed"
-                return ""
+                return ()
 
-            Nothing -> return ""
-
-        return ""
+            Nothing -> return ()
 
         where
             volumes = [volumeBinding "/home/marcelo/Programs/Projects/lazamar.co.uk" "/home/app"]
@@ -116,7 +144,7 @@ deploy image tag =
 
 
 
-runningColor :: Docker.Image -> Command (Maybe Color)
+runningColor :: Image -> Command (Maybe Color)
 runningColor img =
     do
         blueRunning <- isRunning $ toContainer img Blue
@@ -131,7 +159,7 @@ runningColor img =
 
 
 
-toContainer :: Docker.Image -> Color -> Docker.Container
+toContainer :: Image -> Color -> Container
 toContainer img color =
     Docker.container img $ show color
 
@@ -146,51 +174,69 @@ toContainer img color =
     The proxy will run an nginx image. The image parameter is used
     to determine the proxy name and the network it will run in
 -}
-runProxy :: Docker.Image -> Port -> Color -> Command ()
-runProxy targetImage (Port targetPort) color =
+runProxy :: Image -> [Port] -> Color -> Command ()
+runProxy image ports color =
     do
-        setActiveColor targetImage color
+        setProxyConfig image ports color
         isContainerRunning <- isRunning proxyContainer
         if isContainerRunning then
             Docker.exec proxyContainer ["service", "nginx", "reload"]
         else
             do
-                net <- network targetImage
-                Docker.run  (Just net) volumes ports nginxTarget proxyContainer
+                net <- network image
+                Docker.run  (Just net) volumes portBindings nginxTarget proxyContainer
 
         where
             proxyContainer =
-                Docker.container targetImage "PROXY"
+                Docker.container image "PROXY"
 
             volumes =
-                [ volumeBinding (proxyDir targetImage) nginxConfigFolder ]
+                [ volumeBinding (proxyDir image) nginxConfigFolder ]
 
-            ports =
-                [ portBinding targetPort 8080 ]
+            portBindings =
+                (\(Port p) -> portBinding p p) <$> ports
+
+
 
 
 {- Will take care of the directory and file -}
-setActiveColor :: Docker.Image -> Color -> Command ()
-setActiveColor image color =
+setProxyConfig :: Image -> [Port] -> Color -> Command ()
+setProxyConfig image ports color =
     safeIO $
         do
             createDirectoryIfMissing True proxyFolder
-            copyFile colorFile destinationPath
+            writeFile destinationPath config
         where
-            colorFile = colorSourceFile color
+            config = mconcat $ intersperse "\n" $ proxyConfig color image <$> ports
             proxyFolder = proxyDir image
-            destinationFileName = "default.conf"
-            destinationPath = proxyFolder ++ "/" ++ destinationFileName
+            destinationPath = proxyFolder ++ "/default.conf"
 
-colorSourceFile :: Color -> String
-colorSourceFile color =
-    case color of
-        Green ->
-            "/home/marcelo/Programs/Projects/easy-deploy/nginx/conf.d/green-default.conf"
-
-        Blue ->
-            "/home/marcelo/Programs/Projects/easy-deploy/nginx/conf.d/blue-default.conf"
-
-proxyDir :: Docker.Image -> String
+proxyDir :: Image -> String
 proxyDir image =
     tempFolder ++ "/" ++ fmap (\c -> if c == '/' then '-' else c) (show image)
+
+
+proxyConfig :: Color -> Image -> Port  -> String
+proxyConfig color image (Port port) =
+    unlines
+        [ "server"
+        , "{"
+        , "    listen " ++ show port ++ ";"
+        , "    location /"
+        , "    {"
+        , "        proxy_pass " ++ toUrl port image color ++ ";"
+        , "    }"
+        , "    location /stage"
+        , "    {"
+        , "        proxy_pass " ++ toUrl port image (alternate color) ++ ";"
+        , "    }"
+        , "}"
+        ]
+    where
+        toUrl port image color =
+            "http://"++ show (toContainer image color) ++ ":" ++ show port ++ "/"
+
+
+alternate :: Color -> Color
+alternate Green = Blue
+alternate Blue  = Green
