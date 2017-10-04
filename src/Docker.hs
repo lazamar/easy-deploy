@@ -29,12 +29,15 @@ import Data.Maybe (maybe)
 import System.Directory (getCurrentDirectory)
 
 newtype Tag = Tag String
+    deriving (Read)
 
 data Image
     = OfficialImage String
     | UserImage String String
+    deriving (Read)
 
 data Target = Target Image Tag
+    deriving (Read)
 
 {- Containers have a qualifier, which is just a string that gets
     added to the container name and allows us to spin up multiple

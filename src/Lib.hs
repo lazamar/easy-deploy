@@ -1,4 +1,5 @@
 module Lib (main) where
+import qualified Cli
 import Command (Command, run, safeIO)
 import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
@@ -7,6 +8,7 @@ import Data.List.Split (splitOn)
 import Docker
     (Container, Image, Tag, isRunning, network, portBinding, volumeBinding)
 import qualified Docker
+import Options.Applicative (execParser)
 import System.Console.GetFlag
     (ArgDescr (ReqArg), ArgOrder (RequireOrder), OptDescr (Option), getOpt)
 import System.Directory (copyFile, createDirectoryIfMissing)
@@ -88,8 +90,11 @@ readArguments =
 main :: IO ()
 main =
     do
-        args <- readArguments
+        args <- execParser Cli.program
         print args
+
+        -- args <- readArguments
+        -- print args
         -- v <- run $ deploy
         --     [Port 8080]
         --     (Docker.userImage "lazamar" "lazamar.co.uk")
