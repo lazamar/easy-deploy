@@ -1,10 +1,12 @@
 module Lib (main) where
+import Cli (Arguments (_ports, _target, _volumes), Port (Port), Volume (Volume))
 import qualified Cli
 import Command (Command, run, safeIO)
 import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
 import Data.List (intersperse)
 import Data.List.Split (splitOn)
+import Data.Maybe (fromMaybe)
 import Docker
     (Container, Image, Tag, isRunning, network, portBinding, volumeBinding)
 import qualified Docker
@@ -40,77 +42,33 @@ data Color
     | Blue
     deriving (Show)
 
-newtype Port = Port Int
-    deriving (Show, Read)
-
-
-data Flag
-    = FPort Port Port
-    | FVolume String String
-        deriving (Show, Read)
-
-
-cliOptions =
-    [ Option "p" (ReqArg (parseFlag readPort FPort) "PORT") "port bindings. Just like in Docker"
-    , Option "v" (ReqArg (parseFlag return FVolume) "VOLUME") "volume bindings. Just like in Docker"
-    ]
-
-
-readPort v =
-    case readEither v of
-        Right int ->
-            return $ Port int
-        Left _ ->
-            Left $ "Unable to parse port " ++ v
-
-
-parseFlag :: Read a => (String -> Either String a) -> (a -> a -> Flag) -> String -> Either String Flag
-parseFlag readRaw toFlag v =
-    case splitOn ":" v of
-        [raw1, raw2] ->
-            do
-                p1 <- readRaw raw1
-                p2 <- readRaw raw2
-                return $ toFlag p1 p2
-        _ ->
-            Left $ "Unable to parse flag: " ++ v
-
-readArguments :: IO (Either String ([Flag], [String]))
-readArguments =
-    toEitherArgs <$> getArgs
-    where
-        toEitherArgs args =
-            case getOpt RequireOrder cliOptions args of
-                (flags, args, []) ->
-                    flip (,) args <$> sequence flags
-
-                (_,_, errs) ->
-                    Left $ mconcat errs
 
 main :: IO ()
 main =
     do
         args <- execParser Cli.program
+        let
+            ports = _ports args
+            volumes = _volumes args
+            (image, mTag) = _target args
+            tag = fromMaybe (Docker.tag "latest") mTag
+
         print args
 
-        -- args <- readArguments
-        -- print args
-        -- v <- run $ deploy
-        --     [Port 8080]
-        --     (Docker.userImage "lazamar" "lazamar.co.uk")
-        --     (Docker.tag "latest")
-        -- putStrLn "-------------------"
-        -- case v of
-        --     Right _ ->
-        --         putStrLn "Success"
-        --
-        --     Left v ->
-        --         putStrLn "Failure" >>
-        --         putStrLn v
+        v <- run $ deploy ports volumes image tag
+
+        putStrLn "-------------------"
+        case v of
+            Right _ ->
+                putStrLn "Success"
+
+            Left v ->
+                putStrLn "Failure" >>
+                putStrLn v
 
 
-deploy :: [Port] -> Image -> Tag -> Command ()
-deploy ports image tag =
+deploy :: [(Port, Port)] -> [(Volume, Volume)] -> Image -> Tag -> Command ()
+deploy ports volumes image tag =
     do
         mRunningColor <- runningColor image
 
@@ -120,7 +78,7 @@ deploy ports image tag =
 
         net <- network image
         safeIO $ putStrLn $ "Starting " ++ show newColor ++ " image."
-        Docker.run (Just net) volumes ports target (toContainer image newColor)
+        Docker.run (Just net) volumeBinds [] target (toContainer image newColor)
 
         -- This wait allows some time for the server running in the
         -- new image to kick up and be ready to answer to requests
@@ -136,6 +94,7 @@ deploy ports image tag =
 
         case mRunningColor of
             Just color -> do
+                safeIO $ putStrLn $ "Waiting for 5 seconds for " ++ show color ++ " server to finish handling its requests"
                 Docker.kill $ toContainer image color
                 safeIO $ putStrLn $ show color ++ " container killed"
                 return ()
@@ -143,11 +102,17 @@ deploy ports image tag =
             Nothing -> return ()
 
         where
-            volumes = [volumeBinding "/home/marcelo/Programs/Projects/lazamar.co.uk" "/home/app"]
-            ports = []
+            volumeBinds = toVolumeBinding <$> volumes
 
+            portBinds = toPortBinding <$> ports
 
+toPortBinding :: (Port, Port) -> Docker.PortBinding
+toPortBinding (Port a, Port b) =
+    Docker.portBinding a b
 
+toVolumeBinding :: (Volume, Volume) -> Docker.VolumeBinding
+toVolumeBinding (Volume a, Volume b) =
+    Docker.volumeBinding a b
 
 runningColor :: Image -> Command (Maybe Color)
 runningColor img =
@@ -179,7 +144,7 @@ toContainer img color =
     The proxy will run an nginx image. The image parameter is used
     to determine the proxy name and the network it will run in
 -}
-runProxy :: Image -> [Port] -> Color -> Command ()
+runProxy :: Image -> [(Port, Port)] -> Color -> Command ()
 runProxy image ports color =
     do
         setProxyConfig image ports color
@@ -189,23 +154,28 @@ runProxy image ports color =
         else
             do
                 net <- network image
-                Docker.run  (Just net) volumes portBindings nginxTarget proxyContainer
+                Docker.run
+                    (Just net)
+                    volumeBinds
+                    portBinds
+                    nginxTarget
+                    proxyContainer
 
         where
             proxyContainer =
                 Docker.container image "PROXY"
 
-            volumes =
+            volumeBinds =
                 [ volumeBinding (proxyDir image) nginxConfigFolder ]
 
-            portBindings =
-                (\(Port p) -> portBinding p p) <$> ports
+            portBinds =
+                toPortBinding <$> ports
 
 
 
 
 {- Will take care of the directory and file -}
-setProxyConfig :: Image -> [Port] -> Color -> Command ()
+setProxyConfig :: Image -> [(Port, Port)] -> Color -> Command ()
 setProxyConfig image ports color =
     safeIO $
         do
@@ -221,8 +191,8 @@ proxyDir image =
     tempFolder ++ "/" ++ fmap (\c -> if c == '/' then '-' else c) (show image)
 
 
-proxyConfig :: Color -> Image -> Port  -> String
-proxyConfig color image (Port port) =
+proxyConfig :: Color -> Image -> (Port, Port)  -> String
+proxyConfig color image (_, Port port) =
     unlines
         [ "server"
         , "{"

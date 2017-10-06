@@ -29,9 +29,9 @@ import Options.Applicative
 import Text.Read (readEither)
 
 data Arguments = Arguments
-  { _ports   :: [PortBinding]
-  , _volumes :: [VolumeBinding]
-  , _target  :: Docker.Target
+  { _ports   :: [(Port, Port)]
+  , _volumes :: [(Volume, Volume)]
+  , _target  :: (Docker.Image, Maybe Docker.Tag)
   }
   deriving (Show)
 
@@ -41,12 +41,6 @@ newtype Port = Port Int
   deriving (Show, Read)
 
 newtype Volume = Volume String
-    deriving (Show, Read)
-
-data PortBinding = PortBinding Port Port
-    deriving (Show, Read)
-
-data VolumeBinding = VolumeBinding Volume Volume
     deriving (Show, Read)
 
 
@@ -81,39 +75,47 @@ argumentsParser =
                <> help "Volume to bind. Just like in Docker"
             )
 
-parsePortBinding :: ReadM PortBinding
+parsePortBinding :: ReadM (Port, Port)
 parsePortBinding =
     eitherReader $ colonSeparated toPortBinding
     where
         toPortBinding s1 s2= do
             p1 <- readPort s1
             p2 <- readPort s2
-            return $ PortBinding p1 p2
+            return (p1, p2)
 
-parseVolumeBinding :: ReadM VolumeBinding
+parseVolumeBinding :: ReadM (Volume, Volume)
 parseVolumeBinding =
     eitherReader $ colonSeparated toVolumeBinding
     where
         toVolumeBinding s1 s2 =
-            return $ VolumeBinding (Volume s1) (Volume s2)
+            return (Volume s1, Volume s2)
 
 
-parseDockerTarget :: ReadM Docker.Target
+parseDockerTarget :: ReadM (Docker.Image, Maybe Docker.Tag)
 parseDockerTarget =
     eitherReader toTarget
     where
         toTarget s =
-            colonSeparated toUserTarget s <|> return (toOfficialTarget s)
+            colonSeparated withTag s <|> withoutTag s
 
-        toUserTarget :: String -> String -> Either String Docker.Target
-        toUserTarget s1 s2 = do
-            img <- separatedBy "/" (\s1 s2 -> return $ Docker.userImage s1 s2) s1
-            return $ Docker.target img (Docker.tag s2)
+        withTag s tagName = do
+            img <- toImage s
+            return (img, Just $ Docker.tag tagName)
 
-        toOfficialTarget s =
-            Docker.target
-                (Docker.officialImage s)
-                (Docker.tag "latest")
+        withoutTag s = do
+            img <- toImage s
+            return (img, Nothing)
+
+        toImage s =
+            separatedBy "/" withUser s <|> withoutUser s
+
+        withUser userName imageName =
+            return $ Docker.userImage userName imageName
+
+        withoutUser imageName =
+            return $ Docker.officialImage imageName
+
 
 
 readPort :: String -> Either String Port
