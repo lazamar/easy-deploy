@@ -1,24 +1,17 @@
 module Lib (main) where
-import           Cli                    (Arguments (_ports, _target, _volumes),
-                                         Port (Port), Volume (Volume))
+import           Cli                 (Arguments (_ports, _target, _volumes),
+                                      Port (Port), Volume (Volume))
 import qualified Cli
-import           Command                (Command, cmd, run, safeIO)
-import           Control.Concurrent     (threadDelay)
-import           Control.Monad          (unless)
-import           Data.Functor           (void)
-import           Data.List              (intersperse)
-import           Data.List.Split        (splitOn)
-import           Data.Maybe             (fromMaybe)
-import           Docker                 (Container, Image, Tag, isRunning,
-                                         network, portBinding, volumeBinding)
+import           Command             (Command, run, safeIO)
+import           Control.Concurrent  (threadDelay)
+import           Control.Monad       (unless)
+import           Data.Functor        (void)
+import           Data.List           (intersperse)
+import           Data.Maybe          (fromMaybe)
+import           Docker              (Container, Image, Tag, isRunning, network,
+                                      portBinding, volumeBinding)
 import qualified Docker
-import           Options.Applicative    (execParser)
-import           System.Console.GetFlag (ArgDescr (ReqArg),
-                                         ArgOrder (RequireOrder),
-                                         OptDescr (Option), getOpt)
-import           System.Directory       (copyFile, createDirectoryIfMissing)
-import           System.Environment     (getArgs)
-import           Text.Read              (readEither)
+import           Options.Applicative (execParser)
 
 -- Constants
 
@@ -62,9 +55,9 @@ main =
             Right _ ->
                 putStrLn "Success"
 
-            Left v ->
+            Left stdout ->
                 putStrLn "Failure" >>
-                putStrLn v
+                putStrLn stdout
 
 
 deploy :: [(Port, Port)] -> [(Volume, Volume)] -> Image -> Tag -> Command ()
@@ -94,7 +87,7 @@ deploy ports volumes image tag =
         case mRunningColor of
             Just color -> do
                 safeIO $ wait $ "for " ++ show color ++ " server to finish handling its requests"
-                Docker.kill $ toContainer image color
+                void $ Docker.kill $ toContainer image color
                 safeIO $ putStrLn $ show color ++ " container killed"
                 return ()
 
@@ -102,8 +95,6 @@ deploy ports volumes image tag =
 
         where
             volumeBinds = toVolumeBinding <$> volumes
-
-            portBinds = toPortBinding <$> ports
 
 toPortBinding :: (Port, Port) -> Docker.PortBinding
 toPortBinding (Port a, Port b) =
@@ -174,8 +165,6 @@ setProxyConfig :: Docker.Container -> Docker.Image -> [(Port, Port)] -> Color ->
 setProxyConfig proxyContainer image ports color =
     void $ Docker.exec proxyContainer ["tee",  "/etc/nginx/conf.d/default.conf"] config
     where
-        proxyContainer = Docker.container image "PROXY"
-
         config = mconcat $ intersperse "\n" $ proxyConfig color image <$> ports
 
 
@@ -187,17 +176,17 @@ proxyConfig color image (_, Port port) =
         , "    listen " ++ show port ++ ";"
         , "    location /"
         , "    {"
-        , "        proxy_pass " ++ toUrl port image color ++ ";"
+        , "        proxy_pass " ++ toUrl color ++ ";"
         , "    }"
         , "    location /stage"
         , "    {"
-        , "        proxy_pass " ++ toUrl port image (alternate color) ++ ";"
+        , "        proxy_pass " ++ toUrl (alternate color) ++ ";"
         , "    }"
         , "}"
         ]
     where
-        toUrl port image color =
-            "http://"++ show (toContainer image color) ++ ":" ++ show port ++ "/"
+        toUrl aColor =
+            "http://"++ show (toContainer image aColor) ++ ":" ++ show port ++ "/"
 
 
 alternate :: Color -> Color
