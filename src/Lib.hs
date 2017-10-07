@@ -1,22 +1,24 @@
 module Lib (main) where
-import Cli (Arguments (_ports, _target, _volumes), Port (Port), Volume (Volume))
+import           Cli                    (Arguments (_ports, _target, _volumes),
+                                         Port (Port), Volume (Volume))
 import qualified Cli
-import Command (Command, cmd, run, safeIO)
-import Control.Concurrent (threadDelay)
-import Control.Monad (unless)
-import Data.Functor (void)
-import Data.List (intersperse)
-import Data.List.Split (splitOn)
-import Data.Maybe (fromMaybe)
-import Docker
-    (Container, Image, Tag, isRunning, network, portBinding, volumeBinding)
+import           Command                (Command, cmd, run, safeIO)
+import           Control.Concurrent     (threadDelay)
+import           Control.Monad          (unless)
+import           Data.Functor           (void)
+import           Data.List              (intersperse)
+import           Data.List.Split        (splitOn)
+import           Data.Maybe             (fromMaybe)
+import           Docker                 (Container, Image, Tag, isRunning,
+                                         network, portBinding, volumeBinding)
 import qualified Docker
-import Options.Applicative (execParser)
-import System.Console.GetFlag
-    (ArgDescr (ReqArg), ArgOrder (RequireOrder), OptDescr (Option), getOpt)
-import System.Directory (copyFile, createDirectoryIfMissing)
-import System.Environment (getArgs)
-import Text.Read (readEither)
+import           Options.Applicative    (execParser)
+import           System.Console.GetFlag (ArgDescr (ReqArg),
+                                         ArgOrder (RequireOrder),
+                                         OptDescr (Option), getOpt)
+import           System.Directory       (copyFile, createDirectoryIfMissing)
+import           System.Environment     (getArgs)
+import           Text.Read              (readEither)
 
 -- Constants
 

@@ -22,11 +22,11 @@ module Docker
     , Network
     ) where
 
-import Command (Command, cmd, ignoreResult, safeIO)
-import Data.Functor (void)
-import Data.List (intersperse)
-import Data.Maybe (maybe)
-import System.Directory (getCurrentDirectory)
+import           Command          (Command, cmd, ignoreResult, safeIO)
+import           Data.Functor     (void)
+import           Data.List        (intersperse)
+import           Data.Maybe       (maybe)
+import           System.Directory (getCurrentDirectory)
 
 newtype Tag = Tag String
     deriving (Read)

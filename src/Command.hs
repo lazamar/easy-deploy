@@ -6,13 +6,13 @@ module Command
     , Command
     ) where
 
-import Control.Exception (catch)
-import Control.Monad.IO.Class (liftIO)
+import           Control.Exception          (catch)
+import           Control.Monad.IO.Class     (liftIO)
 import qualified Control.Monad.Trans.Either as EitherT
-import Data.Either (either)
-import Data.Functor (void)
-import System.Exit (ExitCode (ExitFailure, ExitSuccess))
-import System.Process (readProcessWithExitCode)
+import           Data.Either                (either)
+import           Data.Functor               (void)
+import           System.Exit                (ExitCode (ExitFailure, ExitSuccess))
+import           System.Process             (readProcessWithExitCode)
 
 type Command a = EitherT.EitherT String IO a
 

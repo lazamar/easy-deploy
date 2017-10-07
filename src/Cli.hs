@@ -1,32 +1,15 @@
 module Cli where
 
-import Control.Applicative (many, some, (<|>))
-import Data.List.Split (splitOn)
-import Data.Semigroup ((<>))
+import           Control.Applicative (many, some, (<|>))
+import           Data.List.Split     (splitOn)
+import           Data.Semigroup      ((<>))
 import qualified Docker
-import Options.Applicative
-    ( Parser
-    , ReadM
-    , argument
-    , auto
-    , eitherReader
-    , fullDesc
-    , header
-    , help
-    , helper
-    , info
-    , long
-    , metavar
-    , option
-    , progDesc
-    , short
-    , showDefault
-    , str
-    , switch
-    , value
-    , (<**>)
-    )
-import Text.Read (readEither)
+import           Options.Applicative (Parser, ReadM, argument, auto,
+                                      eitherReader, fullDesc, header, help,
+                                      helper, info, long, metavar, option,
+                                      progDesc, short, showDefault, str, switch,
+                                      value, (<**>))
+import           Text.Read           (readEither)
 
 data Arguments = Arguments
   { _ports   :: [(Port, Port)]
