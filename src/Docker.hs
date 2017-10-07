@@ -114,7 +114,10 @@ volumeBinding = VolumeBinding
 -- Containers
 
 docker :: [String] -> Command String
-docker args = cmd "docker" args ""
+docker args = docker_ args ""
+
+docker_ :: [String] -> String -> Command String
+docker_ args stdin = cmd "docker" args stdin
 
 
 kill :: Container -> Command String
@@ -165,9 +168,19 @@ isRunning container =
         return . (<) 1 . length $ filter (== '\n') allRunning
 
 {- Runs instructions in a container that is already running -}
-exec :: Container -> [String] -> Command ()
-exec container commandList =
-    void $ docker $ ["exec", show container ] ++ commandList
+exec :: Container -> [String] -> String -> Command String
+exec container commandList stdIn =
+    docker_
+        [ "exec"
+        , "-i"
+        , show container
+        , "bash"
+        , "-c"
+        , commands
+        ]
+        stdIn
+        where
+            commands = mconcat $ intersperse " " commandList
 
 {-
     It creates a new network if it doesn't exist and

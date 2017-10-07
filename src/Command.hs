@@ -20,7 +20,7 @@ type Command a = EitherT.EitherT String IO a
 cmd :: String -> [String] -> String -> Command String
 cmd program args stdin =
     do
-        -- safeIO $ putStrLn $ "Command       : " ++ program ++ mconcat  (fmap (" " ++) args) ++ stdin
+        -- safeIO $ putStrLn $ "Command       : " ++ program ++ mconcat  (fmap (" " ++) args) ++ " " ++ stdin
         (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode program args stdin
         -- safeIO $ putStrLn $ "Command STDERR: " ++ stderr
         -- safeIO $ putStrLn $ "Command STDOUT: " ++ stdout

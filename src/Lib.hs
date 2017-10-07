@@ -1,9 +1,10 @@
 module Lib (main) where
 import Cli (Arguments (_ports, _target, _volumes), Port (Port), Volume (Volume))
 import qualified Cli
-import Command (Command, run, safeIO)
+import Command (Command, cmd, run, safeIO)
 import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
+import Data.Functor (void)
 import Data.List (intersperse)
 import Data.List.Split (splitOn)
 import Data.Maybe (fromMaybe)
@@ -19,23 +20,22 @@ import Text.Read (readEither)
 
 -- Constants
 
-tempFolder :: String
-tempFolder =
-    "/home/marcelo/Programs/Projects/easy-deploy/nginx/proxies"
-
-nginxConfigFolder :: String
-nginxConfigFolder =
-    "/etc/nginx/conf.d/"
-
 nginxImage :: Image
 nginxImage =
     Docker.officialImage "nginx"
+
 
 nginxTarget :: Docker.Target
 nginxTarget =
     Docker.target nginxImage $ Docker.tag "latest"
 
-
+wait :: String -> IO ()
+wait description =
+    do
+        putStrLn $ "Waiting for " ++ show waitTime ++ " seconds " ++ description
+        threadDelay $ waitTime * 1000 * 1000
+    where
+        waitTime = 3
 
 data Color
     = Green
@@ -52,8 +52,6 @@ main =
             volumes = _volumes args
             (image, mTag) = _target args
             tag = fromMaybe (Docker.tag "latest") mTag
-
-        print args
 
         v <- run $ deploy ports volumes image tag
 
@@ -82,8 +80,7 @@ deploy ports volumes image tag =
 
         -- This wait allows some time for the server running in the
         -- new image to kick up and be ready to answer to requests
-        safeIO $ putStrLn "Waiting for 5 seconds for server to start"
-        safeIO $ threadDelay $ 5 * 1000 * 1000
+        safeIO $ wait "for server to start"
 
         {-
             SMOKE TESTS GO HERE
@@ -94,7 +91,7 @@ deploy ports volumes image tag =
 
         case mRunningColor of
             Just color -> do
-                safeIO $ putStrLn $ "Waiting for 5 seconds for " ++ show color ++ " server to finish handling its requests"
+                safeIO $ wait $ "for " ++ show color ++ " server to finish handling its requests"
                 Docker.kill $ toContainer image color
                 safeIO $ putStrLn $ show color ++ " container killed"
                 return ()
@@ -147,11 +144,8 @@ toContainer img color =
 runProxy :: Image -> [(Port, Port)] -> Color -> Command ()
 runProxy image ports color =
     do
-        setProxyConfig image ports color
         isContainerRunning <- isRunning proxyContainer
-        if isContainerRunning then
-            Docker.exec proxyContainer ["service", "nginx", "reload"]
-        else
+        unless isContainerRunning $
             do
                 net <- network image
                 Docker.run
@@ -160,35 +154,27 @@ runProxy image ports color =
                     portBinds
                     nginxTarget
                     proxyContainer
+                return ()
+
+        setProxyConfig proxyContainer image ports color
+        void $ Docker.exec proxyContainer ["service", "nginx", "reload"] ""
 
         where
-            proxyContainer =
-                Docker.container image "PROXY"
+            proxyContainer = Docker.container image "PROXY"
 
-            volumeBinds =
-                [ volumeBinding (proxyDir image) nginxConfigFolder ]
+            volumeBinds = []
 
-            portBinds =
-                toPortBinding <$> ports
-
-
+            portBinds = toPortBinding <$> ports
 
 
 {- Will take care of the directory and file -}
-setProxyConfig :: Image -> [(Port, Port)] -> Color -> Command ()
-setProxyConfig image ports color =
-    safeIO $
-        do
-            createDirectoryIfMissing True proxyFolder
-            writeFile destinationPath config
-        where
-            config = mconcat $ intersperse "\n" $ proxyConfig color image <$> ports
-            proxyFolder = proxyDir image
-            destinationPath = proxyFolder ++ "/default.conf"
+setProxyConfig :: Docker.Container -> Docker.Image -> [(Port, Port)] -> Color -> Command ()
+setProxyConfig proxyContainer image ports color =
+    void $ Docker.exec proxyContainer ["tee",  "/etc/nginx/conf.d/default.conf"] config
+    where
+        proxyContainer = Docker.container image "PROXY"
 
-proxyDir :: Image -> String
-proxyDir image =
-    tempFolder ++ "/" ++ fmap (\c -> if c == '/' then '-' else c) (show image)
+        config = mconcat $ intersperse "\n" $ proxyConfig color image <$> ports
 
 
 proxyConfig :: Color -> Image -> (Port, Port)  -> String
