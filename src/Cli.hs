@@ -4,17 +4,17 @@ import           Control.Applicative (many, some, (<|>))
 import           Data.List.Split     (splitOn)
 import           Data.Semigroup      ((<>))
 import qualified Docker
-import           Options.Applicative (Parser, ReadM, argument, auto,
+import           Options.Applicative (Parser, ParserInfo, ReadM, argument,
                                       eitherReader, fullDesc, header, help,
                                       helper, info, long, metavar, option,
-                                      progDesc, short, showDefault, str, switch,
-                                      value, (<**>))
+                                      short, str, (<**>))
 import           Text.Read           (readEither)
 
 data Arguments = Arguments
-  { _ports   :: [(Port, Port)]
-  , _volumes :: [(Volume, Volume)]
-  , _target  :: (Docker.Image, Maybe Docker.Tag)
+  { _ports    :: [(Port, Port)]
+  , _volumes  :: [(Volume, Volume)]
+  , _target   :: (Docker.Image, Maybe Docker.Tag)
+  , _commands :: [String]
   }
   deriving (Show)
 
@@ -26,7 +26,7 @@ newtype Port = Port Int
 newtype Volume = Volume String
     deriving (Show, Read)
 
-
+program :: ParserInfo Arguments
 program =
     info
     (argumentsParser <**> helper)
@@ -39,23 +39,28 @@ program =
 argumentsParser :: Parser Arguments
 argumentsParser =
     Arguments
-      <$> some
-            (option parsePortBinding
+        <$> (some
+                $ option parsePortBinding
                 $ long "port"
                 <> short 'p'
                 <> metavar "PORT"
                 <> help "Ports to bind. Just like in Docker"
-             )
-      <*> many
-            (option parseVolumeBinding
+            )
+        <*> (many
+                $ option parseVolumeBinding
                 $ long "volume"
                 <> short 'v'
                 <> metavar "VOLUME"
                 <> help "Volume to bind. Just like in Docker"
-             )
-     <*> argument parseDockerTarget
-            (   metavar "TARGET"
-               <> help "Volume to bind. Just like in Docker"
+            )
+        <*> (argument parseDockerTarget
+                $ metavar "TARGET"
+                <> help "Volume to bind. Just like in Docker"
+            )
+        <*> ( many
+                $ argument str
+                $ metavar "COMMAND"
+                <> help "Commands to send to the docker image"
             )
 
 parsePortBinding :: ReadM (Port, Port)

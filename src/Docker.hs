@@ -22,11 +22,10 @@ module Docker
     , Network
     ) where
 
-import           Command          (Command, cmd, ignoreResult, safeIO)
-import           Data.Functor     (void)
-import           Data.List        (intersperse)
-import           Data.Maybe       (maybe)
-import           System.Directory (getCurrentDirectory)
+import           Command      (Command, cmd, ignoreResult)
+import           Data.Functor (void)
+import           Data.List    (intersperse)
+import           Data.Maybe   (maybe)
 
 newtype Tag = Tag String
     deriving (Read)
@@ -55,8 +54,8 @@ newtype Network = Network Image
 -- Constructors
 
 instance Show Target where
-    show (Target image tag) =
-        show image ++ ":" ++ show tag
+    show (Target image aTag) =
+        show image ++ ":" ++ show aTag
 
 instance Show Tag where
     show (Tag name) =
@@ -78,12 +77,12 @@ instance Show Container where
                         name
 
 instance Show PortBinding where
-    show (PortBinding local container) =
-        show local ++ ":" ++ show container
+    show (PortBinding local aContainer) =
+        show local ++ ":" ++ show aContainer
 
 instance Show VolumeBinding where
-    show (VolumeBinding local container) =
-        local ++ ":" ++ container
+    show (VolumeBinding local aContainer) =
+        local ++ ":" ++ aContainer
 
 instance Show Network where
     show (Network image) =
@@ -121,28 +120,22 @@ docker_ args stdin = cmd "docker" args stdin
 
 
 kill :: Container -> Command String
-kill container =
-    docker ["kill", show container]
-
-remove :: Container -> Command String
-remove container =
-    docker ["rm", show container]
+kill aContainer =
+    docker ["kill", show aContainer]
 
 killAndRemove :: Container -> Command ()
-killAndRemove container =
+killAndRemove aContainer =
     do
-        ignoreResult $ docker ["kill", show container ]
-        ignoreResult $ docker ["rm", "-f", show container]
+        ignoreResult $ docker ["kill", show aContainer ]
+        ignoreResult $ docker ["rm", "-f", show aContainer]
 
 
 {- Will kill and remove any existing container with same name -}
-run :: Maybe Network -> [VolumeBinding] -> [PortBinding] -> Target -> Container -> Command ()
-run mNetwork volumes ports (Target image tag) container =
+run :: Maybe Network -> [VolumeBinding] -> [PortBinding] -> Target -> Container -> [String] -> Command ()
+run mNetwork volumes ports (Target image aTag) aContainer commands =
     do
-        killAndRemove container
-        dir <- safeIO getCurrentDirectory
-        docker args
-        return ()
+        killAndRemove aContainer
+        void $ docker args
         where
             toPort (PortBinding p1 p2) =
                 show p1 ++ ":" ++ show p2
@@ -154,26 +147,27 @@ run mNetwork volumes ports (Target image tag) container =
                 {- We always make containers detached -}
                 mconcat
                     [ [ "run" , "-d" ]
-                    , return $ "--name=" ++ show container
+                    , return $ "--name=" ++ show aContainer
                     , (++) "--net=" <$>  maybe [] (return . show) mNetwork
                     , mconcat $ (:) "-v" . return . toVolume <$> volumes
                     , mconcat $ (:) "-p" . return . toPort <$> ports
-                    , [ show $ Target image tag ]
+                    , [ show $ Target image aTag ]
+                    , commands
                     ]
 
 isRunning :: Container -> Command Bool
-isRunning container =
+isRunning aContainer =
     do
-        allRunning <- docker ["ps", "--filter", "name=" ++ show container ]
+        allRunning <- docker ["ps", "--filter", "name=" ++ show aContainer ]
         return . (<) 1 . length $ filter (== '\n') allRunning
 
 {- Runs instructions in a container that is already running -}
 exec :: Container -> [String] -> String -> Command String
-exec container commandList stdIn =
+exec aContainer commandList stdIn =
     docker_
         [ "exec"
         , "-i"
-        , show container
+        , show aContainer
         , "bash"
         , "-c"
         , commands
@@ -195,5 +189,5 @@ network img =
         net = Network img
 
 pull :: Target -> Command ()
-pull target =
-    void $ docker ["pull", show target ]
+pull aTarget =
+    void $ docker ["pull", show aTarget ]

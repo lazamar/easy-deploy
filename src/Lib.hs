@@ -1,5 +1,5 @@
 module Lib (main) where
-import           Cli                 (Arguments (_ports, _target, _volumes),
+import           Cli                 (Arguments (_commands, _ports, _target, _volumes),
                                       Port (Port), Volume (Volume))
 import qualified Cli
 import           Command             (Command, run, safeIO)
@@ -47,8 +47,9 @@ main =
             volumes = _volumes args
             (image, mTag) = _target args
             tag = fromMaybe (Docker.tag "latest") mTag
+            commands = _commands args
 
-        v <- run $ deploy ports volumes image tag
+        v <- run $ deploy ports volumes image tag commands
 
         putStrLn "-------------------"
         case v of
@@ -60,8 +61,8 @@ main =
                 putStrLn stdout
 
 
-deploy :: [(Port, Port)] -> [(Volume, Volume)] -> Image -> Tag -> Command ()
-deploy ports volumes image tag =
+deploy :: [(Port, Port)] -> [(Volume, Volume)] -> Image -> Tag -> [String] -> Command ()
+deploy ports volumes image tag commands =
     do
         mRunningColor <- runningColor image
 
@@ -71,7 +72,7 @@ deploy ports volumes image tag =
 
         net <- network image
         safeIO $ putStrLn $ "Starting " ++ show newColor ++ " image."
-        Docker.run (Just net) volumeBinds [] target (toContainer image newColor)
+        Docker.run (Just net) volumeBinds [] target (toContainer image newColor) commands
 
         -- This wait allows some time for the server running in the
         -- new image to kick up and be ready to answer to requests
@@ -93,6 +94,7 @@ deploy ports volumes image tag =
 
             Nothing -> return ()
 
+        safeIO $ putStrLn $ show newColor ++ " is not the main container"
         where
             volumeBinds = toVolumeBinding <$> volumes
 
@@ -141,13 +143,13 @@ runProxy image ports color =
         unless isContainerRunning $
             do
                 net <- network image
-                Docker.run
+                void $ Docker.run
                     (Just net)
                     volumeBinds
                     portBinds
                     nginxTarget
                     proxyContainer
-                return ()
+                    []
 
         setProxyConfig proxyContainer image ports color
         void $ Docker.exec proxyContainer ["service", "nginx", "reload"] ""
