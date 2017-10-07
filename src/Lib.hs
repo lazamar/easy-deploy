@@ -94,7 +94,7 @@ deploy ports volumes image tag commands =
 
             Nothing -> return ()
 
-        safeIO $ putStrLn $ show newColor ++ " is not the main container"
+        safeIO $ putStrLn $ show newColor ++ " is now the main container"
         where
             volumeBinds = toVolumeBinding <$> volumes
 

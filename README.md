@@ -1,76 +1,71 @@
 # easy-deploy
 
-A quick and easy way to implement blue-green deployment with Docker.
+A quick and easy way to implement [blue-green deployment](https://martinfowler.com/bliki/BlueGreenDeployment.html) with Docker.
 
-The app covers these main steps:
-    -   Load code from Source control
-    -   Build
-    -   Run tests
-    -   Switch running version seamlessly
+This will allow you to do zero downtime deployments.
+
+## How to use
+
+It works very similarly to `docker run`, which will be called in the background.
+Let's run my `lazamar:0.5` image
+
+```
+easy-deploy -p 8080:8080 lazamar:0.5
+>
+> Starting Blue image.
+> Waiting for 3 seconds for server to start
+> Switching proxy to Blue
+> Blue is now the main container
+```
+
+We can see the image and proxy server are running
+
+```
+docker ps
+
+> CONTAINER ID        IMAGE               ...         PORTS                            NAMES
+> c0345092b90c        nginx:latest        ...         80/tcp, 0.0.0.0:8080->8080/tcp   container-PROXY-lazamar
+> 2a19bd611e96        lazamar:0.5         ...         8080/tcp                         container-Blue-lazamar
+```
+
+**Here comes the cool part**. To swap your current image to a newer version, just run it with the new version number
+
+```
+easy-deploy -p 8080:8080 lazamar:0.6
+>
+> Starting Green image.
+> Waiting for 3 seconds for server to start
+> Switching proxy to Green
+> Waiting for 3 seconds for Blue server to finish handling its requests
+> Blue container killed
+> Green is now the main container
+```
+
+That's it. Now version 0.6 went is running on port 8080 and no requests were lost.
+
+```
+docker ps
+
+>> CONTAINER ID        IMAGE               PORTS                            NAMES
+>> e703e8567995        lazamar:0.6         8080/tcp                         container-Green-lazamar
+>> c0345092b90c        nginx:latest        80/tcp, 0.0.0.0:8080->8080/tcp   container-PROXY-lazamar
+```
+
+## How it works
+
+`easy-deploy` will run an nginx proxy server that will redirect requests on the ports specified to your image.
+
+When you run a new version of your image, it will switch the currently running one with the new one without letting any request drop.
+
+Currently you cannot set the name of the container. An automatic container name will be generated based on the image name and the current active deployment color (blue or green).
+
+
+## Releases
+
+### v0.1.0
+    -   Run target docker image linking ports and volumes
+    -   Accept commands to send to image
 
 ## TODO
 
-## Things to Juggle
-    -   Docker Images
-    -   Docker Containers
-    -   Docker Running instances
-    -   Ports being used
-    -   Old app files
-    -   Be able to run multiple easy-deployments in same machine
-    ?   Listen to webhook
-
-## Deployment Config
-
-`easy-deploy` takes a `yaml` configuration file that specifies how the build will work.
-We always assume that your app runs on port 8080
-
-### Dockerhub deployment
-
--   Deploy specific tag
--   Deploy latest tag
-
-``` yaml
-DOCKER_IMAGE: lazamar/silver-magpie-haskell
-
-RUN_ARGS: -v /home/myapp/_env:/home/app/_env
-
-# This is just to check whether the server is working correctly. If
-# it succeeds the swap goes forward
-SMOKE_TEST: curl http://localhost:$PORT
-```  
-
-### Github deployment
-
--   Deploy specific commmit
--   Deploy latest commit
-
-``` yaml
-GITHUB_REPO: https://github.com/lazamar/silver-magpie-backend
-
-RUN_ARGS: -v /home/myapp/_env:/home/app/_env
-
-SMOKE_TEST: curl http://localhost:$PORT
-```  
-
-
-### Super customised deployment  
-``` yaml
-## config.yaml
-# Available variables:
-#   $PORT       : The port your app should serve to
-#   $TEMP_DIR    : The temporary directory for your build files
-#   $IMAGE_NAME  : Name of docker image to be built
-#   
-
-# This command must return a unique identifier for the build so that
-# we don't build the same code more than once.
-UUID: ??
-
-LOAD: git clone https://github.com/lazamar/silver-magpie-backend $TEMP_DIR
-# In build you can assume the current working directory is $TEMP_DIR
-BUILD: docker build --tag $IMAGE_NAME .
-
-RUN: docker run -d -p $PORT:8080 -v /home/myapp/_env:/home/app/_env
-
-SMOKE_TEST: curl http://localhost:$PORT
-```
+    -   Accept a suite of
